@@ -1,6 +1,6 @@
 /* TaskHub service worker - app-shell cache for full offline + install.
    API calls (script.google.com) and Drive content are NEVER cached. */
-var CACHE = 'taskhub-shell-v3';
+var CACHE = 'taskhub-shell-v4';
 var SHELL = [
   './',
   './index.html',
@@ -32,22 +32,28 @@ self.addEventListener('activate', function (e) {
 });
 
 self.addEventListener('fetch', function (e) {
-  var url = new URL(e.request.url);
+  var url;
+  try { url = new URL(e.request.url); } catch (err) { return; }
 
-  /* cross-origin (Apps Script API, Drive thumbnails): network only */
+  /* only same-origin http(s) GETs; API and Drive traffic passes through */
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return;
   if (url.origin !== self.location.origin) return;
   if (e.request.method !== 'GET') return;
 
-  /* same-origin shell: stale-while-revalidate */
+  /* stale-while-revalidate; never resolve respondWith with undefined */
   e.respondWith(
     caches.open(CACHE).then(function (c) {
       return c.match(e.request, { ignoreSearch: true }).then(function (hit) {
         var refresh = fetch(e.request).then(function (res) {
           if (res && res.ok) { try { c.put(e.request, res.clone()); } catch (err) {} }
           return res;
-        }).catch(function () { return hit; });
-        return hit || refresh;
+        });
+        if (hit) {
+          refresh.catch(function () {});
+          return hit;
+        }
+        return refresh;
       });
-    })
+    }).catch(function () { return fetch(e.request); })
   );
 });
